@@ -1,0 +1,21 @@
+[Unit]
+Description=Embedded Linux telemetry agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=telemetry
+Group=telemetry
+WorkingDirectory=/opt/embedded-linux-monitoring-platform
+EnvironmentFile=-/etc/embedded-monitoring/agent.env
+ExecStart=/opt/embedded-linux-monitoring-platform/.venv/bin/python -m agent.telemetry_agent --interval 15 --backend-url http://127.0.0.1:8000
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
