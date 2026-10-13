@@ -8,7 +8,7 @@ A local-first monitoring stack for Linux SBCs. A Python agent reads operating-sy
 
 - Versioned JSON telemetry collection with `psutil`, optional Linux `/proc` and `/sys` reads, graceful `null` readings, one-shot and continuous CLI modes, HTTP ingestion, and optional MQTT publishing.
 - Validated FastAPI endpoints, SQLite persistence, structured logs, health status, bounded history, and Prometheus text metrics.
-- Responsive React/TypeScript dashboard with real API polling, CPU/memory history, resource warnings, connection state, and loading, empty, and error states.
+- Responsive dark EdgeWatch React/TypeScript dashboard with validated API polling every five seconds, CPU/memory history, configurable resource warnings, connection state, and loading, empty, partial-data, error, and recovery states.
 - Non-root container images, Nginx API routing, loopback-bound Docker Compose services, optional Mosquitto profile, systemd unit example, and GitHub Actions workflow.
 
 ### Locally verified in this workspace
@@ -17,7 +17,7 @@ A local-first monitoring stack for Linux SBCs. A Python agent reads operating-sy
 - Frontend component tests, strict TypeScript check, and production Vite build.
 - Ruff checks and Docker Compose configuration parsing.
 - The one-shot agent emitted JSON that parsed successfully on this Intel Mac.
-- In the latest local run, the Python suite passed all 18 tests and Ruff passed; the frontend suite passed all 3 tests and its production build completed.
+- In the latest local run, the Python suite passed all 18 tests and Ruff passed; the frontend suite passed all 6 tests and its production build completed.
 - A live API smoke test returned `200` for health/docs, `404` for an empty latest sample, ingested and retrieved one real Mac agent sample, returned chronological history, emitted Prometheus process metrics, and rejected `limit=501` with `422`.
 
 These checks verify the current Mac/software path only. Docker Compose syntax was checked, but image builds and container startup could not be verified because the Docker daemon was not running in this workspace. No remote deployment is claimed.
@@ -125,6 +125,14 @@ npm run dev -- --host 127.0.0.1
 Open `http://127.0.0.1:5173`. The backend creates `data/telemetry.db` on first use. For a one-shot JSON sample, run `.venv/bin/python -m agent.telemetry_agent`.
 
 To configure a direct cross-origin browser API URL instead of Vite's proxy, set both `VITE_API_BASE_URL=http://127.0.0.1:8000` and `CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173` before starting the frontend and backend. CORS is disabled by default.
+
+### EdgeWatch dashboard
+
+The frontend requires Node.js 22+ and npm. Install the lockfile dependencies with `cd frontend && npm ci`. Start development mode with `npm run dev -- --host 127.0.0.1`; the dashboard is served at `http://127.0.0.1:5173`.
+
+`VITE_API_BASE_URL` is optional and defaults to the same origin: Vite proxies `/health` and `/api` to `http://127.0.0.1:8000` locally, while the production Nginx service proxies the same paths to the backend. This avoids relying on `localhost` from inside containers. For a direct API origin, set this variable and allow the exact dashboard origin using `CORS_ALLOWED_ORIGINS`. These are public build-time settings; never place secrets in frontend environment variables.
+
+Polling calls health, latest, and the last 60 history samples every five seconds. Warning defaults are CPU 85%, memory 85%, and disk 90%; configure them with `VITE_CPU_WARNING_THRESHOLD`, `VITE_MEMORY_WARNING_THRESHOLD`, and `VITE_DISK_WARNING_THRESHOLD` (valid range 1–100). Alerts are advisory thresholds, not hardware fault diagnosis. Run `npm test` for UI tests and `npm run build` for the strict TypeScript check and production bundle.
 
 ## Docker Compose
 

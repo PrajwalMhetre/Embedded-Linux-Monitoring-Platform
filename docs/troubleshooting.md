@@ -20,7 +20,7 @@ The Python development requirements include FastAPI/Uvicorn, psutil, Paho MQTT, 
 
 | Symptom | Check |
 | --- | --- |
-| Dashboard reports API disconnected | Start Uvicorn on port 8000; with the Vite proxy, keep its default backend target at `localhost:8000`. Check `GET /health`. |
+| Dashboard reports API disconnected | Start Uvicorn on `127.0.0.1:8000`; the Vite development proxy targets that loopback address. Check `GET /health` and the browser network panel. |
 | Direct API URL fails in a browser | Set `CORS_ALLOWED_ORIGINS` to the exact dashboard origin, such as `http://127.0.0.1:5173`; set `VITE_API_BASE_URL` to the API origin and restart both processes. Avoid `*`. |
 | Dashboard is empty | Send one sample with the agent or API example, then check `/api/v1/metrics/history`. Empty history is expected before ingestion. |
 | API returns `422` | Compare the body with `/docs`; include timezone-aware timestamp, schema version `1.0`, required OS identity fields, and bounded metric values. |
