@@ -1,0 +1,32 @@
+[Unit]
+Description=EdgeWatch embedded Linux telemetry agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=edge-monitor
+Group=edge-monitor
+WorkingDirectory=/opt/edgewatch
+Environment=AGENT_API_URL=http://127.0.0.1:8000
+Environment=AGENT_INTERVAL=15
+EnvironmentFile=-/etc/edge-monitor/agent.env
+ExecStart=/opt/edgewatch/.venv/bin/python -m agent.telemetry_agent --interval ${AGENT_INTERVAL} --backend-url ${AGENT_API_URL}
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

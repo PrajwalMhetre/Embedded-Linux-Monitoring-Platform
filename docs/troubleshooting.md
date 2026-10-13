@@ -25,14 +25,14 @@ The Python development requirements include FastAPI/Uvicorn, psutil, Paho MQTT, 
 | Dashboard is empty | Send one sample with the agent or API example, then check `/api/v1/metrics/history`. Empty history is expected before ingestion. |
 | API returns `422` | Compare the body with `/docs`; include timezone-aware timestamp, schema version `1.0`, required OS identity fields, and bounded metric values. |
 | Database endpoint returns `503` | Confirm the configured database parent directory is writable and storage is available; inspect structured backend logs. |
-| MQTT publish fails | Start the optional broker with `docker compose --profile mqtt up`, then set `MQTT_BROKER=127.0.0.1` for a host-run agent. The sample broker is local-only and anonymous. |
+| MQTT publish fails | Start the optional broker with `docker compose --profile mqtt up -d`, verify it with `docker compose ps`, and set `MQTT_BROKER=127.0.0.1` for a host-run agent. Subscribe with `docker compose exec mosquitto mosquitto_sub -h 127.0.0.1 -t edge/telemetry -v`. The sample broker is local-only and anonymous. |
 | `npm ci` fails | Use Node 22+ and run it from `frontend/` so it can read the lockfile. |
 | Linux readings are null | Check kernel interfaces and access for the service account. Unsupported metrics are intentionally null; not every board exposes a thermal zone. |
 | Compose health check fails | Run `docker compose ps` and `docker compose logs backend frontend`; verify Docker Desktop is running and ports 8000/8080 are free. |
 
 ## systemd agent example
 
-The unit at `deploy/telemetry-agent.service` assumes the project is installed under `/opt/embedded-linux-monitoring-platform`, a `telemetry` account exists, and an API is reachable at `127.0.0.1:8000`. Install Python runtime dependencies in that installation's `.venv`, install the unit under `/etc/systemd/system/`, then run `systemctl daemon-reload`, `systemctl enable --now telemetry-agent`, and `systemctl status telemetry-agent`. Use `journalctl -u telemetry-agent` to inspect output. Optional MQTT environment variables can be placed in `/etc/embedded-monitoring/agent.env`.
+The unit at `deploy/systemd/edge-monitor.service` assumes the project is installed at `/opt/edgewatch`, an `edge-monitor` account exists, and an API is reachable. Install the unit under `/etc/systemd/system/edge-monitor.service`, then run `systemctl daemon-reload`, `systemctl enable --now edge-monitor`, and `systemctl status edge-monitor`. Follow logs with `journalctl -u edge-monitor -f`. API URL, interval, and optional MQTT settings belong in `/etc/edge-monitor/agent.env`; keep it root-owned and mode 0640. See the README for full installation and removal commands. This unit is a Linux example and has not been run on macOS.
 
 ## Linux SBC validation
 

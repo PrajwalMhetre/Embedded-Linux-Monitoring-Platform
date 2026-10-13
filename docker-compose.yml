@@ -18,9 +18,12 @@ services:
       retries: 3
       start_period: 5s
     restart: unless-stopped
+    stop_grace_period: 10s
     read_only: true
     tmpfs:
       - /tmp
+    networks:
+      - monitoring
 
   frontend:
     build:
@@ -42,6 +45,9 @@ services:
       timeout: 3s
       retries: 3
     restart: unless-stopped
+    stop_grace_period: 10s
+    networks:
+      - monitoring
 
   mosquitto:
     image: eclipse-mosquitto:2
@@ -49,17 +55,25 @@ services:
     ports:
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:1883:1883"
     volumes:
-      - ./deploy/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mqtt-data:/mosquitto/data
       - mqtt-log:/mosquitto/log
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -t '$$SYS/broker/version' -C 1 -W 2 >/dev/null"]
+      test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-t", "edgewatch/healthcheck", "-n", "-q", "0"]
       interval: 20s
       timeout: 5s
       retries: 3
     restart: unless-stopped
+    stop_grace_period: 10s
+    networks:
+      - monitoring
 
 volumes:
   telemetry-data:
   mqtt-data:
   mqtt-log:
+
+networks:
+  monitoring:
+    driver: bridge
+    internal: true

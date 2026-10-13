@@ -65,13 +65,30 @@ def test_one_shot_cli_prints_json(capsys):
 
 def test_optional_mqtt_publisher_sends_versioned_json():
     snapshot = {"schema_version": "1.0", "hostname": "edge-board"}
-    with patch("paho.mqtt.publish.single") as publish:
-        telemetry_agent.publish_mqtt("broker.local", "devices/edge", snapshot, port=1884)
+    with patch("paho.mqtt.client.Client") as create_client:
+        client = create_client.return_value
+        client.publish.return_value.rc = 0
+        client.publish.return_value.is_published.return_value = True
+        telemetry_agent.publish_mqtt("broker.local", "edge/telemetry", snapshot, port=1884, timeout=3)
 
-    publish.assert_called_once_with(
-        "devices/edge",
-        json.dumps(snapshot),
-        hostname="broker.local",
-        port=1884,
+    assert client.connect_timeout == 3
+    client.connect.assert_called_once_with("broker.local", port=1884, keepalive=30)
+    client.publish.assert_called_once_with(
+        "edge/telemetry",
+        payload=json.dumps(snapshot),
         qos=1,
     )
+    client.disconnect.assert_called_once_with()
+    client.loop_stop.assert_called_once_with()
+
+
+def test_optional_mqtt_publisher_reports_publish_timeout():
+    with patch("paho.mqtt.client.Client") as create_client:
+        client = create_client.return_value
+        client.publish.return_value.rc = 0
+        client.publish.return_value.is_published.return_value = False
+        with pytest.raises(RuntimeError, match="did not complete within 2 seconds"):
+            telemetry_agent.publish_mqtt("broker.local", "edge/telemetry", {}, timeout=2)
+
+    client.disconnect.assert_called_once_with()
+    client.loop_stop.assert_called_once_with()

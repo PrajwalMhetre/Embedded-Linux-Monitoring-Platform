@@ -9,7 +9,8 @@
 - `backend/app/database.py` owns SQLite initialization and parameterized reads/writes. Each operation uses a short-lived connection. History selects at most 500 newest samples and returns that window in chronological order.
 - `backend/app/main.py` creates the FastAPI application, configures logging/CORS, initializes the database, and registers the routes.
 - `frontend/src/api.ts` reads backend health and chronological history. `frontend/src/App.tsx` renders the last sample as current and charts the returned timeline without generating substitute metric data.
-- `deploy/nginx.conf` serves the production frontend and proxies API/health/metrics paths to the backend container.
+- `deploy/nginx.conf` serves the production frontend and proxies API/health/metrics paths to the backend container on Compose's named `monitoring` network.
+- `deploy/mosquitto/mosquitto.conf` configures the optional loopback-only development broker. The agent publishes schema-compatible JSON to MQTT when explicitly enabled, but the backend has no MQTT subscriber or broker-to-SQLite bridge.
 
 ## Telemetry Path
 

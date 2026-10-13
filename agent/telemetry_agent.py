@@ -136,12 +136,39 @@ def post_telemetry(url: str, snapshot: dict[str, Any], timeout: float = 5.0) -> 
             raise urllib.error.HTTPError(request.full_url, response.status, "ingestion failed", response.headers, None)
 
 
-def publish_mqtt(broker: str, topic: str, snapshot: dict[str, Any], port: int = 1883) -> None:
+def publish_mqtt(
+    broker: str,
+    topic: str,
+    snapshot: dict[str, Any],
+    port: int = 1883,
+    timeout: float = 5.0,
+) -> None:
     try:
-        import paho.mqtt.publish as mqtt_publish
+        import paho.mqtt.client as mqtt
     except ImportError as error:
         raise RuntimeError("MQTT publishing requires paho-mqtt; install the agent dependencies") from error
-    mqtt_publish.single(topic, json.dumps(snapshot), hostname=broker, port=port, qos=1)
+    if timeout <= 0:
+        raise ValueError("MQTT timeout must be greater than zero")
+
+    client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+    client.connect_timeout = timeout
+    loop_started = False
+    try:
+        client.connect(broker, port=port, keepalive=30)
+        client.loop_start()
+        loop_started = True
+        publication = client.publish(topic, payload=json.dumps(snapshot, allow_nan=False), qos=1)
+        if publication.rc != mqtt.MQTT_ERR_SUCCESS:
+            raise RuntimeError(f"MQTT publish was rejected with status {publication.rc}")
+        publication.wait_for_publish(timeout=timeout)
+        if not publication.is_published():
+            raise TimeoutError(f"MQTT publish did not complete within {timeout:g} seconds")
+    except (OSError, ValueError, TimeoutError) as error:
+        raise RuntimeError(f"MQTT publish to {broker}:{port} failed: {error}") from error
+    finally:
+        if loop_started:
+            client.disconnect()
+            client.loop_stop()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -150,7 +177,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--backend-url", help="backend base URL, for example http://localhost:8000")
     parser.add_argument("--mqtt-broker", default=os.getenv("MQTT_BROKER") or None, help="optional MQTT broker hostname")
     parser.add_argument("--mqtt-port", type=int, default=int(os.getenv("MQTT_PORT", "1883")))
-    parser.add_argument("--mqtt-topic", default=os.getenv("MQTT_TOPIC", "embedded-monitoring/telemetry"))
+    parser.add_argument("--mqtt-topic", default=os.getenv("MQTT_TOPIC", "edge/telemetry"))
+    parser.add_argument("--mqtt-timeout", type=float, default=float(os.getenv("MQTT_TIMEOUT_SECONDS", "5")))
     args = parser.parse_args(argv)
     if args.interval < 0:
         parser.error("--interval must be zero or greater")
@@ -165,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
                 LOGGER.warning("HTTP ingestion failed: %s", error)
         if args.mqtt_broker:
             try:
-                publish_mqtt(args.mqtt_broker, args.mqtt_topic, snapshot, args.mqtt_port)
+                publish_mqtt(args.mqtt_broker, args.mqtt_topic, snapshot, args.mqtt_port, args.mqtt_timeout)
             except (OSError, RuntimeError, ValueError) as error:
                 LOGGER.warning("MQTT publishing failed: %s", error)
         if args.interval == 0:

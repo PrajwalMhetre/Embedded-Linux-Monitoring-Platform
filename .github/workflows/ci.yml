@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
 
 permissions:
   contents: read
@@ -35,3 +37,16 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+
+  deployment:
+    needs: [python, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Validate Compose configuration
+        run: docker compose config -q
+      - name: Validate MQTT profile configuration
+        run: docker compose --profile mqtt config -q
+      - name: Build deployment images
+        run: docker compose build

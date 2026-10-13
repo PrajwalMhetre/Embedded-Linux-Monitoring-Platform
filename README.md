@@ -20,11 +20,11 @@ A local-first monitoring stack for Linux SBCs. A Python agent reads operating-sy
 - In the latest local run, the Python suite passed all 18 tests and Ruff passed; the frontend suite passed all 6 tests and its production build completed.
 - A live API smoke test returned `200` for health/docs, `404` for an empty latest sample, ingested and retrieved one real Mac agent sample, returned chronological history, emitted Prometheus process metrics, and rejected `limit=501` with `422`.
 
-These checks verify the current Mac/software path only. Docker Compose syntax was checked, but image builds and container startup could not be verified because the Docker daemon was not running in this workspace. No remote deployment is claimed.
+These checks verify the current Mac/software path only. Both default and MQTT-profile Compose configurations parse locally. `docker compose build` could not run because the Docker daemon was unavailable; no image build, container startup, volume-persistence test, or remote deployment is claimed. MQTT publishing is unit-tested, but broker delivery was not verified because Docker and Mosquitto client tools were unavailable.
 
 ### CI-verified
 
-The workflow at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs Python lint/tests and frontend tests/build for pushes and pull requests. GitHub Actions succeeded for commit `99d9ffc` with both the `python` and `frontend` jobs passing. Check the Actions tab for the status of newer commits.
+The workflow at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs Python lint/tests, frontend tests/build, both Compose profile checks, and backend/frontend image builds on pushes and pull requests to `main`. The latest previously completed run passed the Python and frontend jobs; the new deployment job has not run yet. Check the Actions tab after this deployment commit is pushed for the actual full workflow result.
 
 ### Optional features
 
@@ -59,9 +59,9 @@ See [architecture and data flow](docs/architecture.md) for component boundaries 
 | SQLite | Durable telemetry snapshots and bounded queries | [`backend/app/database.py`](backend/app/database.py), configured by [`backend/app/config.py`](backend/app/config.py) |
 | React, TypeScript, Vite | Browser application and production build | [`frontend/src/`](frontend/src/), [`frontend/vite.config.ts`](frontend/vite.config.ts) |
 | Recharts | CPU and memory time-series visualization | [`frontend/src/App.tsx`](frontend/src/App.tsx) |
-| Paho MQTT, Eclipse Mosquitto | Optional local MQTT publisher and broker | [`agent/telemetry_agent.py`](agent/telemetry_agent.py), [`deploy/mosquitto.conf`](deploy/mosquitto.conf) |
-| Docker, Docker Compose, Nginx | Local container deployment and API proxy | [`docker-compose.yml`](docker-compose.yml), [`deploy/nginx.conf`](deploy/nginx.conf) |
-| systemd | Linux agent service example | [`deploy/telemetry-agent.service`](deploy/telemetry-agent.service) |
+| Paho MQTT, Eclipse Mosquitto | Optional JSON telemetry publisher and local broker; no SQLite bridge | [`agent/telemetry_agent.py`](agent/telemetry_agent.py), [`deploy/mosquitto/mosquitto.conf`](deploy/mosquitto/mosquitto.conf) |
+| Docker, Docker Compose, Nginx | Local container deployment, shared network, proxy, persistent SQLite volume | [`docker-compose.yml`](docker-compose.yml), [`backend/Dockerfile`](backend/Dockerfile), [`frontend/Dockerfile`](frontend/Dockerfile), [`deploy/nginx.conf`](deploy/nginx.conf) |
+| systemd | Hardened Linux agent service example | [`deploy/systemd/edge-monitor.service`](deploy/systemd/edge-monitor.service) |
 | pytest, FastAPI TestClient (HTTPX2 transport), Vitest, Testing Library | Backend and UI tests | [`backend/tests/`](backend/tests/), [`frontend/src/App.test.tsx`](frontend/src/App.test.tsx) |
 | Ruff, GitHub Actions | Python lint and automated CI checks | [`pyproject.toml`](pyproject.toml), [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 
@@ -73,6 +73,8 @@ backend/app/             FastAPI app, configuration, routes, schema, SQLite pers
 backend/tests/           API, persistence, and end-to-end integration tests
 frontend/src/            React dashboard, API client, styles, and UI tests
 deploy/                  Nginx, Mosquitto, and systemd configuration
+deploy/mosquitto/        Optional broker config
+deploy/systemd/          Linux telemetry agent service
 docs/                    Architecture and troubleshooting guides
 .github/workflows/       CI workflow
 docker-compose.yml       Local API, dashboard, and optional MQTT broker
@@ -136,14 +138,75 @@ Polling calls health, latest, and the last 60 history samples every five seconds
 
 ## Docker Compose
 
+The backend and Nginx frontend communicate over the named `monitoring` bridge network. Nginx serves the built Vite assets and proxies `/api`, `/health`, and `/metrics` to the `backend` service; container requests do not use host `localhost`. Both host ports bind to `127.0.0.1` by default. `backend/Dockerfile` installs runtime-only Python dependencies, runs Uvicorn as an unprivileged user, and persists SQLite at `/data/telemetry.db`. `frontend/Dockerfile` builds with Node 22 and serves static assets from unprivileged Nginx on port 8080.
+
 ```sh
 cp .env.example .env
+docker compose config
+# Run in the foreground; use another terminal for ps/logs.
 docker compose up --build
+# Or use detached mode:
+docker compose up --build -d
+docker compose ps
+docker compose logs --tail=100
+docker compose down
 ```
 
-The dashboard is at `http://127.0.0.1:8080`; the API is at `http://127.0.0.1:8000`. Published ports bind to loopback by default. To enable the optional local MQTT broker, run `docker compose --profile mqtt up --build`; the broker binds to `127.0.0.1:1883` and permits anonymous connections, so do not expose it on an untrusted network.
+The backend, frontend, and optional broker share the isolated `monitoring` bridge network. Nginx uses the Compose service name `backend`; containers do not use host `localhost` to reach each other. Host ports bind to `127.0.0.1` by default. The dashboard is at `http://127.0.0.1:8080`; the API is at `http://127.0.0.1:8000`. Backend and frontend health checks gate service readiness. The `telemetry-data` named volume survives `docker compose down`; `docker compose down -v` removes the volumes and permanently deletes stored telemetry (and MQTT persistence data).
 
-Stop services with `docker compose down`. Persistent telemetry and MQTT data remain in named volumes; `docker compose down -v` deletes those volumes and their data.
+### Optional MQTT
+
+Mosquitto is opt-in and binds to loopback on port 1883. The sample broker config permits anonymous clients for local development only; do not expose it to an untrusted network. No broker subscriber or MQTT-to-SQLite persistence bridge is implemented. Normal HTTP ingestion is independent of MQTT.
+
+Start the broker and wait for its health check:
+
+```sh
+docker compose --profile mqtt up --build -d
+docker compose ps
+docker compose logs --tail=100 mosquitto
+```
+
+In one terminal, subscribe from inside the broker container:
+
+```sh
+docker compose exec mosquitto mosquitto_sub -h 127.0.0.1 -t edge/telemetry -v
+```
+
+In another terminal, publish a real host sample from the Mac/Linux host agent:
+
+```sh
+MQTT_BROKER=127.0.0.1 .venv/bin/python -m agent.telemetry_agent \
+  --interval 15 --mqtt-broker 127.0.0.1 --mqtt-port 1883 \
+  --mqtt-topic edge/telemetry --mqtt-timeout 5
+```
+
+The agent publishes the same schema-version `1.0` JSON snapshot used for HTTP ingestion with QoS 1 and a bounded five-second connect/publish timeout. Failures are logged and do not terminate sampling. Broker authentication and TLS are not configured in this local profile; configure both and restrict network access before production use. MQTT message delivery was not runtime-verified in this workspace because the Docker daemon and Mosquitto client tools were unavailable.
+
+### Linux systemd agent
+
+The example unit is `deploy/systemd/edge-monitor.service`. It assumes the repository is installed at `/opt/edgewatch`, the `edge-monitor` system/group exist, and an API is reachable. On a Linux target, create the service account and install the application/runtime environment, then install the unit:
+
+```sh
+sudo useradd --system --create-home --home-dir /opt/edgewatch --shell /usr/sbin/nologin edge-monitor
+sudo git clone https://github.com/PrajwalMhetre/Embedded-Linux-Monitoring-Platform.git /opt/edgewatch
+sudo chown -R edge-monitor:edge-monitor /opt/edgewatch
+sudo -u edge-monitor python3.11 -m venv /opt/edgewatch/.venv
+sudo -u edge-monitor /opt/edgewatch/.venv/bin/pip install -r /opt/edgewatch/requirements-runtime.txt
+sudo install -d -o root -g edge-monitor -m 0750 /etc/edge-monitor
+sudo install -o root -g edge-monitor -m 0640 /dev/null /etc/edge-monitor/agent.env
+sudoedit /etc/edge-monitor/agent.env
+sudo install -m 0644 deploy/systemd/edge-monitor.service /etc/systemd/system/edge-monitor.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now edge-monitor
+sudo systemctl status edge-monitor
+sudo journalctl -u edge-monitor -f
+```
+
+Set `AGENT_API_URL` and `AGENT_INTERVAL` in the protected environment file. Optional MQTT settings are `MQTT_BROKER`, `MQTT_PORT`, `MQTT_TOPIC`, and `MQTT_TIMEOUT_SECONDS`; keep credentials in a root-owned mode-0640 environment file and never commit it. Remove the service with `sudo systemctl disable --now edge-monitor`, `sudo rm /etc/systemd/system/edge-monitor.service`, then `sudo systemctl daemon-reload`. This example has not been installed or tested on a Linux host.
+
+### CI deployment checks
+
+`.github/workflows/ci.yml` runs Python tests/Ruff and frontend tests/build, then validates both Compose profiles and builds the backend/frontend images on GitHub-hosted Ubuntu. A CI workflow result is reported only after the corresponding Actions run completes.
 
 ## API
 
@@ -185,7 +248,7 @@ Metric readings that are unsupported may be `null`. Percentages must be between 
 
 Copy `.env.example` to `.env` for Compose overrides. `HOST_BIND_ADDRESS` defaults to `127.0.0.1`, `LOG_LEVEL` defaults to `INFO`, and `CORS_ALLOWED_ORIGINS` is empty unless a direct browser origin is needed. The local API's `DATABASE_PATH` defaults to `data/telemetry.db`; Compose sets it to `/data/telemetry.db` on its persistent volume. `VITE_API_BASE_URL` defaults to empty, which uses the Vite development proxy or Nginx same-origin routing. Dashboard warning thresholds are build-time Vite variables: `VITE_CPU_WARNING_THRESHOLD`, `VITE_MEMORY_WARNING_THRESHOLD`, and `VITE_DISK_WARNING_THRESHOLD` (1–100; defaults 85, 85, and 90). Rebuild the frontend image after changing them.
 
-The agent accepts `--interval`, `--backend-url`, `--mqtt-broker`, `--mqtt-port`, and `--mqtt-topic`. MQTT options can also be set with `MQTT_BROKER`, `MQTT_PORT`, and `MQTT_TOPIC`; no broker is contacted unless configured. The default topic is `embedded-monitoring/telemetry`.
+The agent accepts `--interval`, `--backend-url`, `--mqtt-broker`, `--mqtt-port`, `--mqtt-topic`, and `--mqtt-timeout`. MQTT options can also be set with `MQTT_BROKER`, `MQTT_PORT`, `MQTT_TOPIC`, and `MQTT_TIMEOUT_SECONDS`; no broker is contacted unless configured. The default topic is `edge/telemetry` and the default publish timeout is five seconds.
 
 ## Checks
 
@@ -195,7 +258,7 @@ The agent accepts `--interval`, `--backend-url`, `--mqtt-broker`, `--mqtt-port`,
 cd frontend && npm test && npm run build
 ```
 
-Or use `make test`, `make lint`, and `make build` after installing both dependency sets. Compose syntax can be checked with `docker compose config -q`. GitHub Actions runs the Python and frontend checks on pushes and pull requests; a configured workflow is not itself evidence of a successful remote run.
+Or use `make test`, `make lint`, and `make build` after installing both dependency sets. Compose checks: `docker compose config` and `docker compose --profile mqtt config`. GitHub Actions also builds both images; a configured workflow is not itself evidence of a successful remote run.
 
 ## Security Notes
 
