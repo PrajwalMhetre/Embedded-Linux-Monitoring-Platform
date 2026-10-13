@@ -20,11 +20,11 @@ A local-first monitoring stack for Linux SBCs. A Python agent reads operating-sy
 - In the latest local run, the Python suite passed all 18 tests and Ruff passed; the frontend suite passed all 6 tests and its production build completed.
 - A live API smoke test returned `200` for health/docs, `404` for an empty latest sample, ingested and retrieved one real Mac agent sample, returned chronological history, emitted Prometheus process metrics, and rejected `limit=501` with `422`.
 
-These checks verify the current Mac/software path only. Both default and MQTT-profile Compose configurations parse locally. `docker compose build` could not run because the Docker daemon was unavailable; no image build, container startup, volume-persistence test, or remote deployment is claimed. MQTT publishing is unit-tested, but broker delivery was not verified because Docker and Mosquitto client tools were unavailable.
+These checks verify the current Mac/software path only. Both default and MQTT-profile Compose configurations parse locally. `docker compose build` could not run on this Mac because the Docker daemon was unavailable; local container startup and volume-persistence behavior therefore remain unverified. The GitHub Ubuntu deployment job did build both images. MQTT publishing is unit-tested, but broker delivery was not verified because Docker and Mosquitto client tools were unavailable.
 
 ### CI-verified
 
-The workflow at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs Python lint/tests, frontend tests/build, both Compose profile checks, and backend/frontend image builds on pushes and pull requests to `main`. The latest previously completed run passed the Python and frontend jobs; the new deployment job has not run yet. Check the Actions tab after this deployment commit is pushed for the actual full workflow result.
+The workflow at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs Python lint/tests, frontend tests/build, both Compose profile checks, and backend/frontend image builds on pushes and pull requests to `main`. GitHub Actions completed successfully for commit `ff8a54b`; the `python`, `frontend`, and `deployment` jobs all passed, including both container image builds on Ubuntu.
 
 ### Optional features
 
@@ -187,7 +187,7 @@ The agent publishes the same schema-version `1.0` JSON snapshot used for HTTP in
 The example unit is `deploy/systemd/edge-monitor.service`. It assumes the repository is installed at `/opt/edgewatch`, the `edge-monitor` system/group exist, and an API is reachable. On a Linux target, create the service account and install the application/runtime environment, then install the unit:
 
 ```sh
-sudo useradd --system --create-home --home-dir /opt/edgewatch --shell /usr/sbin/nologin edge-monitor
+sudo useradd --system --create-home --home-dir /var/lib/edge-monitor --shell /usr/sbin/nologin edge-monitor
 sudo git clone https://github.com/PrajwalMhetre/Embedded-Linux-Monitoring-Platform.git /opt/edgewatch
 sudo chown -R edge-monitor:edge-monitor /opt/edgewatch
 sudo -u edge-monitor python3.11 -m venv /opt/edgewatch/.venv
