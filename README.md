@@ -37,12 +37,12 @@ No Raspberry Pi or other SBC tests have been performed. Follow [the hardware val
 
 ```mermaid
 flowchart LR
-		A[Python agent] -->|psutil, /proc, /sys| B[Versioned JSON snapshot]
-		B -->|HTTP POST| C[FastAPI validation]
-		C --> D[(SQLite)]
-		D --> E[React dashboard]
-		C --> F[Health and Prometheus endpoints]
-		A -. optional MQTT .-> G[Mosquitto]
+    A[Python agent] -->|psutil, /proc, /sys| B[Versioned JSON snapshot]
+    B -->|HTTP POST| C[FastAPI validation]
+    C --> D[(SQLite)]
+    D --> E[React dashboard]
+    C --> F[Health and Prometheus endpoints]
+    A -. optional MQTT .-> G[Mosquitto]
 ```
 
 See [architecture and data flow](docs/architecture.md) for component boundaries and the message path.
@@ -151,20 +151,20 @@ Example ingestion request:
 
 ```sh
 curl -i http://127.0.0.1:8000/api/v1/metrics \
-	-H 'Content-Type: application/json' \
-	-d '{
-		"schema_version":"1.0",
-		"timestamp":"2026-10-13T12:00:00Z",
-		"hostname":"edge-board",
-		"os":{"system":"Linux","release":"6.1","version":"example","machine":"aarch64"},
-		"cpu_percent":12.5,
-		"memory_percent":40.0,
-		"disk_root_percent":60.0,
-		"load_average":[0.1,0.2,0.3],
-		"uptime_seconds":1200,
-		"process_count":42,
-		"cpu_temperature_c":null
-	}'
+  -H 'Content-Type: application/json' \
+  -d '{
+    "schema_version":"1.0",
+    "timestamp":"2026-10-13T12:00:00Z",
+    "hostname":"edge-board",
+    "os":{"system":"Linux","release":"6.1","version":"example","machine":"aarch64"},
+    "cpu_percent":12.5,
+    "memory_percent":40.0,
+    "disk_root_percent":60.0,
+    "load_average":[0.1,0.2,0.3],
+    "uptime_seconds":1200,
+    "process_count":42,
+    "cpu_temperature_c":null
+  }'
 ```
 
 Metric readings that are unsupported may be `null`. Percentages must be between 0 and 100; timestamps must include a timezone; extra fields and non-finite values are rejected.
