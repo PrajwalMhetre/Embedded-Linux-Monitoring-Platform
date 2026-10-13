@@ -89,7 +89,7 @@ function MetricGauge({
 }
 
 function HistoryChart({ history }: { history: Telemetry[] }) {
-  const chartData = [...history].reverse().map((item) => ({
+  const chartData = history.map((item) => ({
     time: formatTime(item.timestamp),
     cpu: item.cpu_percent,
     memory: item.memory_percent,
@@ -148,7 +148,7 @@ export default function App() {
     };
   }, []);
 
-  const latest = history[0];
+  const latest = history.at(-1);
   const warningCandidates: Array<[string, number | null, number]> = latest
     ? [
         ["CPU", latest.cpu_percent, thresholds.cpu],

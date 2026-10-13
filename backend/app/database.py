@@ -7,6 +7,8 @@ from pathlib import Path
 
 from backend.app.schemas import TelemetryPayload
 
+MAX_HISTORY_LIMIT = 500
+
 
 class DatabaseError(RuntimeError):
     """Raised when the telemetry database cannot complete an operation."""
@@ -70,10 +72,15 @@ def get_latest(database_path: Path) -> TelemetryPayload | None:
 
 
 def get_history(database_path: Path, limit: int) -> list[TelemetryPayload]:
+    if not 1 <= limit <= MAX_HISTORY_LIMIT:
+        raise ValueError(f"history limit must be between 1 and {MAX_HISTORY_LIMIT}")
     try:
         with _connect(database_path) as connection:
             rows = connection.execute(
-                "SELECT payload FROM telemetry ORDER BY timestamp DESC, id DESC LIMIT ?",
+                """SELECT payload FROM (
+                       SELECT timestamp, id, payload FROM telemetry
+                       ORDER BY timestamp DESC, id DESC LIMIT ?
+                   ) ORDER BY timestamp ASC, id ASC""",
                 (limit,),
             ).fetchall()
         return [TelemetryPayload.model_validate_json(row["payload"]) for row in rows]

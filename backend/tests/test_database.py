@@ -43,8 +43,13 @@ def test_persistence_orders_and_bounds_history_with_parameterized_hostnames(tmp_
     latest = get_latest(database_path)
     assert latest is not None
     assert latest.hostname == "edge'); DROP TABLE telemetry;--"
-    assert len(get_history(database_path, 1)) == 1
+    assert [sample.hostname for sample in get_history(database_path, 2)] == [
+        "older",
+        "edge'); DROP TABLE telemetry;--",
+    ]
     assert count_telemetry(database_path) == 2
+    with pytest.raises(ValueError, match="between 1 and 500"):
+        get_history(database_path, 501)
 
 
 def test_filesystem_failure_is_reported_as_database_error(tmp_path):

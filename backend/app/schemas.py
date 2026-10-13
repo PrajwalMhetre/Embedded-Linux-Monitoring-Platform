@@ -40,22 +40,25 @@ class TelemetryPayload(BaseModel):
     @field_validator("cpu_percent", "memory_percent", "disk_root_percent", "uptime_seconds", "cpu_temperature_c", mode="before")
     @classmethod
     def reject_boolean_metrics(cls, value: object) -> object:
-        if isinstance(value, bool):
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
             raise PydanticCustomError("invalid_metric_type", "boolean values are not valid metrics")
         return value
 
     @field_validator("process_count", mode="before")
     @classmethod
     def reject_boolean_process_count(cls, value: object) -> object:
-        if isinstance(value, bool):
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
             raise PydanticCustomError("invalid_metric_type", "process_count must be an integer")
         return value
 
     @field_validator("load_average", mode="before")
     @classmethod
     def reject_boolean_load_values(cls, value: object) -> object:
-        if isinstance(value, list) and any(isinstance(number, bool) for number in value):
-            raise ValueError("load average values must be numeric")
+        if value is not None and (
+            not isinstance(value, list)
+            or any(isinstance(number, bool) or not isinstance(number, (int, float)) for number in value)
+        ):
+            raise PydanticCustomError("invalid_metric_type", "load average values must be numeric")
         return value
 
     @field_validator("cpu_percent", "memory_percent", "disk_root_percent", "uptime_seconds", "cpu_temperature_c")

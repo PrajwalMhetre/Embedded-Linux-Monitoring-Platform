@@ -17,6 +17,8 @@ A local-first monitoring stack for Linux SBCs. A Python agent reads operating-sy
 - Frontend component tests, strict TypeScript check, and production Vite build.
 - Ruff checks and Docker Compose configuration parsing.
 - The one-shot agent emitted JSON that parsed successfully on this Intel Mac.
+- In the latest local run, the Python suite passed all 18 tests and Ruff passed; the frontend suite passed all 3 tests and its production build completed.
+- A live API smoke test returned `200` for health/docs, `404` for an empty latest sample, ingested and retrieved one real Mac agent sample, returned chronological history, emitted Prometheus process metrics, and rejected `limit=501` with `422`.
 
 These checks verify the current Mac/software path only. Docker Compose syntax was checked, but image builds and container startup could not be verified because the Docker daemon was not running in this workspace. No remote deployment is claimed.
 
@@ -53,8 +55,8 @@ See [architecture and data flow](docs/architecture.md) for component boundaries 
 | --- | --- | --- |
 | Python 3.11+, psutil | Host sampling and CLI transports | [`agent/telemetry_agent.py`](agent/telemetry_agent.py) |
 | Linux `/proc`, `/sys` | Load, uptime, and optional thermal reading | [`agent/telemetry_agent.py`](agent/telemetry_agent.py) |
-| FastAPI, Pydantic, Uvicorn | Validated HTTP API and OpenAPI | [`backend/app/main.py`](backend/app/main.py), [`backend/app/schemas.py`](backend/app/schemas.py) |
-| SQLite | Durable telemetry snapshots and bounded queries | [`backend/app/database.py`](backend/app/database.py) |
+| FastAPI, Pydantic, Uvicorn | Validated HTTP API and OpenAPI | [`backend/app/main.py`](backend/app/main.py), [`backend/app/routes.py`](backend/app/routes.py), [`backend/app/schemas.py`](backend/app/schemas.py) |
+| SQLite | Durable telemetry snapshots and bounded queries | [`backend/app/database.py`](backend/app/database.py), configured by [`backend/app/config.py`](backend/app/config.py) |
 | React, TypeScript, Vite | Browser application and production build | [`frontend/src/`](frontend/src/), [`frontend/vite.config.ts`](frontend/vite.config.ts) |
 | Recharts | CPU and memory time-series visualization | [`frontend/src/App.tsx`](frontend/src/App.tsx) |
 | Paho MQTT, Eclipse Mosquitto | Optional local MQTT publisher and broker | [`agent/telemetry_agent.py`](agent/telemetry_agent.py), [`deploy/mosquitto.conf`](deploy/mosquitto.conf) |
@@ -67,7 +69,7 @@ See [architecture and data flow](docs/architecture.md) for component boundaries 
 
 ```text
 agent/                   Python collector, CLI, and tests
-backend/app/             FastAPI routes, Pydantic schema, SQLite persistence
+backend/app/             FastAPI app, configuration, routes, schema, SQLite persistence
 backend/tests/           API, persistence, and end-to-end integration tests
 frontend/src/            React dashboard, API client, styles, and UI tests
 deploy/                  Nginx, Mosquitto, and systemd configuration
@@ -141,11 +143,11 @@ Interactive OpenAPI documentation is served at `/docs`; the schema is at `/opena
 
 | Method | Path | Success | Behavior |
 | --- | --- | --- | --- |
-| `GET` | `/health` | `200` | Database readiness; `503` if unavailable |
-| `GET` | `/metrics` | `200` | Prometheus text exposition |
+| `GET` | `/health` | `200` | `{"status":"ok","database":"ok"}`; `503` with `{"status":"unhealthy","database":"unavailable"}` when DB is unavailable |
+| `GET` | `/metrics` | `200` | HELP/TYPE-described sample, host resource, process RSS/CPU/thread metrics; `503` when DB is unavailable |
 | `POST` | `/api/v1/metrics` | `201` | Validate and persist one snapshot; `422` invalid input, `503` storage failure |
-| `GET` | `/api/v1/metrics/latest` | `200` | Latest stored snapshot; `404` when empty |
-| `GET` | `/api/v1/metrics/history?limit=60` | `200` | Newest-first snapshots; limit range 1–1000 |
+| `GET` | `/api/v1/metrics/latest` | `200` | Latest stored snapshot; `404` when empty, `503` on DB failure |
+| `GET` | `/api/v1/metrics/history?limit=60` | `200` | Latest bounded window, ordered oldest-to-newest; limit range 1–500, `422` outside range, `503` on DB failure |
 
 Example ingestion request:
 
@@ -167,11 +169,13 @@ curl -i http://127.0.0.1:8000/api/v1/metrics \
   }'
 ```
 
-Metric readings that are unsupported may be `null`. Percentages must be between 0 and 100; timestamps must include a timezone; extra fields and non-finite values are rejected.
+Metric readings that are unsupported may be `null`. Percentages must be between 0 and 100; timestamps must include a timezone; extra fields and non-finite values are rejected. History returns the newest requested records ordered oldest-to-newest within that window.
+
+`/metrics` exposes HELP/TYPE-described Prometheus samples for stored sample counts, latest reported host CPU/memory/disk percentages, and API process RSS, CPU seconds, and thread count. A metric is omitted when its source reading is unavailable. `/api/v1/metrics/history` first selects the newest requested samples, then returns them in chronological order. Routes live in `backend/app/routes.py`, environment settings in `backend/app/config.py`, validation in `backend/app/schemas.py`, and SQLite operations in `backend/app/database.py`.
 
 ## Configuration
 
-Copy `.env.example` to `.env` for Compose overrides. `HOST_BIND_ADDRESS` defaults to `127.0.0.1`, `LOG_LEVEL` defaults to `INFO`, and `CORS_ALLOWED_ORIGINS` is empty unless a direct browser origin is needed. `VITE_API_BASE_URL` defaults to empty, which uses the Vite development proxy or Nginx same-origin routing. Dashboard warning thresholds are build-time Vite variables: `VITE_CPU_WARNING_THRESHOLD`, `VITE_MEMORY_WARNING_THRESHOLD`, and `VITE_DISK_WARNING_THRESHOLD` (1–100; defaults 85, 85, and 90). Rebuild the frontend image after changing them.
+Copy `.env.example` to `.env` for Compose overrides. `HOST_BIND_ADDRESS` defaults to `127.0.0.1`, `LOG_LEVEL` defaults to `INFO`, and `CORS_ALLOWED_ORIGINS` is empty unless a direct browser origin is needed. The local API's `DATABASE_PATH` defaults to `data/telemetry.db`; Compose sets it to `/data/telemetry.db` on its persistent volume. `VITE_API_BASE_URL` defaults to empty, which uses the Vite development proxy or Nginx same-origin routing. Dashboard warning thresholds are build-time Vite variables: `VITE_CPU_WARNING_THRESHOLD`, `VITE_MEMORY_WARNING_THRESHOLD`, and `VITE_DISK_WARNING_THRESHOLD` (1–100; defaults 85, 85, and 90). Rebuild the frontend image after changing them.
 
 The agent accepts `--interval`, `--backend-url`, `--mqtt-broker`, `--mqtt-port`, and `--mqtt-topic`. MQTT options can also be set with `MQTT_BROKER`, `MQTT_PORT`, and `MQTT_TOPIC`; no broker is contacted unless configured. The default topic is `embedded-monitoring/telemetry`.
 
