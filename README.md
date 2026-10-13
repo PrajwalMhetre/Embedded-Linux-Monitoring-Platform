@@ -2,6 +2,10 @@
 
 A local-first monitoring stack for Linux SBCs. A Python agent reads operating-system metrics, a FastAPI service validates and stores snapshots in SQLite, and a React dashboard displays the stored history. The repository includes container and systemd deployment examples; Raspberry Pi hardware validation is still pending.
 
+## Objective
+
+Provide low-overhead, schema-validated visibility into headless Linux edge devices without requiring a hosted monitoring service. The same telemetry contract supports local collection, HTTP ingestion, durable SQLite history, and a responsive operational dashboard.
+
 ## Project Status
 
 ### Implemented
@@ -11,20 +15,31 @@ A local-first monitoring stack for Linux SBCs. A Python agent reads operating-sy
 - Responsive dark EdgeWatch React/TypeScript dashboard with validated API polling every five seconds, CPU/memory history, configurable resource warnings, connection state, and loading, empty, partial-data, error, and recovery states.
 - Non-root container images, Nginx API routing, loopback-bound Docker Compose services, optional Mosquitto profile, systemd unit example, and GitHub Actions workflow.
 
+### Five-step completion status
+
+| Step | Status | Verification boundary |
+| --- | --- | --- |
+| 1. Embedded Linux telemetry agent | Implemented | Unit-tested on this Mac; Linux `/proc`, `/sys`, and SBC sensors remain hardware-unverified. |
+| 2. FastAPI and SQLite backend | Implemented | 22-test suite covers API, persistence, restart, validation, and integration paths. |
+| 3. React/TypeScript dashboard | Implemented | 6 UI tests, production build, and live browser/API check passed. |
+| 4. Containers, MQTT, systemd, CI | Implemented | Compose/profile parsing and GitHub image-build CI passed; local containers, broker delivery, and Linux systemd remain unverified. |
+| 5. Integration, tests, documentation | Implemented | Agent-to-API-to-SQLite integration and documented status/limitations are covered; physical-board verification is pending. |
+
 ### Locally verified in this workspace
 
 - Python agent, API validation, SQLite persistence, database-failure handling, and collector-to-API integration tests.
 - Frontend component tests, strict TypeScript check, and production Vite build.
 - Ruff checks and Docker Compose configuration parsing.
 - The one-shot agent emitted JSON that parsed successfully on this Intel Mac.
-- In the latest local run, the Python suite passed all 18 tests and Ruff passed; the frontend suite passed all 6 tests and its production build completed.
+- Verification date: 2026-10-13. The Python suite passed all 22 tests and Ruff passed; the frontend suite passed all 6 tests and its production build completed.
 - A live API smoke test returned `200` for health/docs, `404` for an empty latest sample, ingested and retrieved one real Mac agent sample, returned chronological history, emitted Prometheus process metrics, and rejected `limit=501` with `422`.
+- An isolated end-to-end run posted a real agent sample to FastAPI, read it from latest/history, rejected invalid CPU input with `422`, and confirmed the sample survived stopping and restarting Uvicorn against the same temporary SQLite file. The live EdgeWatch page also loaded that isolated API sample.
 
-These checks verify the current Mac/software path only. Both default and MQTT-profile Compose configurations parse locally. `docker compose build` could not run on this Mac because the Docker daemon was unavailable; local container startup and volume-persistence behavior therefore remain unverified. The GitHub Ubuntu deployment job did build both images. MQTT publishing is unit-tested, but broker delivery was not verified because Docker and Mosquitto client tools were unavailable.
+These checks verify the current Mac/software path only. Both default and MQTT-profile Compose configurations parse locally. `docker compose build` could not run on this Mac because the Docker daemon was unavailable; local container startup and volume-persistence behavior therefore remain unverified. The GitHub Ubuntu deployment job did build both images. MQTT publishing is unit-tested, but broker delivery was not verified because Docker and Mosquitto client tools were unavailable. No screenshot files, performance benchmarks, or physical-device measurements are included.
 
 ### CI-verified
 
-The workflow at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs Python lint/tests, frontend tests/build, both Compose profile checks, and backend/frontend image builds on pushes and pull requests to `main`. GitHub Actions completed successfully for commit `ff8a54b`; the `python`, `frontend`, and `deployment` jobs all passed, including both container image builds on Ubuntu.
+The workflow at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs Python lint/tests, frontend tests/build, both Compose profile checks, and backend/frontend image builds on pushes and pull requests to `main`. GitHub Actions completed successfully for commit `ff8a54b`; the `python`, `frontend`, and `deployment` jobs all passed, including both container image builds on Ubuntu. A documentation-only follow-up CI run for `c55c484` also passed.
 
 ### Optional features
 
@@ -187,7 +202,7 @@ The agent publishes the same schema-version `1.0` JSON snapshot used for HTTP in
 The example unit is `deploy/systemd/edge-monitor.service`. It assumes the repository is installed at `/opt/edgewatch`, the `edge-monitor` system/group exist, and an API is reachable. On a Linux target, create the service account and install the application/runtime environment, then install the unit:
 
 ```sh
-sudo useradd --system --create-home --home-dir /var/lib/edge-monitor --shell /usr/sbin/nologin edge-monitor
+sudo useradd --system --user-group --create-home --home-dir /var/lib/edge-monitor --shell /usr/sbin/nologin edge-monitor
 sudo git clone https://github.com/PrajwalMhetre/Embedded-Linux-Monitoring-Platform.git /opt/edgewatch
 sudo chown -R edge-monitor:edge-monitor /opt/edgewatch
 sudo -u edge-monitor python3.11 -m venv /opt/edgewatch/.venv
@@ -238,6 +253,24 @@ curl -i http://127.0.0.1:8000/api/v1/metrics \
     "process_count":42,
     "cpu_temperature_c":null
   }'
+```
+
+The successful response is `201 Created` with the validated telemetry JSON, normalized to UTC. For the example above, its body is:
+
+```json
+{
+  "schema_version": "1.0",
+  "timestamp": "2026-10-13T12:00:00Z",
+  "hostname": "edge-board",
+  "os": {"system": "Linux", "release": "6.1", "version": "example", "machine": "aarch64"},
+  "cpu_percent": 12.5,
+  "memory_percent": 40.0,
+  "disk_root_percent": 60.0,
+  "load_average": [0.1, 0.2, 0.3],
+  "uptime_seconds": 1200.0,
+  "process_count": 42,
+  "cpu_temperature_c": null
+}
 ```
 
 Metric readings that are unsupported may be `null`. Percentages must be between 0 and 100; timestamps must include a timezone; extra fields and non-finite values are rejected. History returns the newest requested records ordered oldest-to-newest within that window.

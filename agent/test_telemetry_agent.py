@@ -1,4 +1,5 @@
 import json
+import urllib.error
 from unittest.mock import patch
 
 import pytest
@@ -61,6 +62,30 @@ def test_one_shot_cli_prints_json(capsys):
     with patch.object(telemetry_agent, "collect_telemetry", return_value={"schema_version": "1.0"}):
         assert telemetry_agent.main([]) == 0
     assert json.loads(capsys.readouterr().out) == {"schema_version": "1.0"}
+
+
+def test_cli_logs_http_failure_and_keeps_standalone_sample(capsys, caplog):
+    snapshot = {"schema_version": "1.0", "hostname": "edge-board"}
+    with (
+        patch.object(telemetry_agent, "collect_telemetry", return_value=snapshot),
+        patch.object(telemetry_agent, "post_telemetry", side_effect=urllib.error.URLError("offline")),
+    ):
+        assert telemetry_agent.main(["--backend-url", "http://127.0.0.1:8000"]) == 0
+
+    assert json.loads(capsys.readouterr().out) == snapshot
+    assert "HTTP ingestion failed" in caplog.text
+
+
+def test_cli_logs_mqtt_failure_without_aborting_collection(capsys, caplog):
+    snapshot = {"schema_version": "1.0", "hostname": "edge-board"}
+    with (
+        patch.object(telemetry_agent, "collect_telemetry", return_value=snapshot),
+        patch.object(telemetry_agent, "publish_mqtt", side_effect=RuntimeError("broker unavailable")),
+    ):
+        assert telemetry_agent.main(["--mqtt-broker", "127.0.0.1"]) == 0
+
+    assert json.loads(capsys.readouterr().out) == snapshot
+    assert "MQTT publishing failed" in caplog.text
 
 
 def test_optional_mqtt_publisher_sends_versioned_json():
