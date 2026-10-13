@@ -22,7 +22,7 @@ These checks verify the current Mac/software path only. Docker Compose syntax wa
 
 ### CI-verified
 
-The workflow at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) configures Python lint/tests and frontend tests/build for pushes and pull requests. No GitHub Actions run was initiated or observed from this workspace, so there is no CI result to claim yet.
+The workflow at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs Python lint/tests and frontend tests/build for pushes and pull requests. GitHub Actions succeeded for commit `99d9ffc` with both the `python` and `frontend` jobs passing. Check the Actions tab for the status of newer commits.
 
 ### Optional features
 
